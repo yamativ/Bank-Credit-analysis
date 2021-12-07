@@ -1,0 +1,240 @@
+---
+title: "German Gredit Case"
+author: "Takahiro Yamada"
+date: "11/17/2021"
+output: html_document
+---
+## Deutche Bank Credit Score Analysis
+Based on Deuche Bank customer data, figuring out the scoring model using logistic regression analysis.
+After confirming the regression momdels is enough reliable, created score formular.
+
+```{r data massaging, echo=TRUE, warning=FALSE, message=FALSE}
+##############################################################
+##### Libraries
+##############################################################
+#install.packages("ggplot2")
+#install.packages("plotly")
+#install.packages("caret")
+#install.packages("ROCR")
+#install.packages("rpart") 
+#install.packages("rpart.plot") 
+library(ggplot2)
+library(plotly)
+library(caret)
+library(ROCR)
+library(rpart)
+library(rpart.plot)
+
+
+##############################################################
+##### Data Massage
+##############################################################
+library(readxl)
+my_germ <- read_excel("Desktop/MBAN/20211012 Dara science R/class deuchebank/german credit card.xls")
+
+any(is.na(my_germ)) 
+table(my_germ$purpose) 
+
+#omit rows with X 
+which(my_germ$purpose == "X") 
+my_germ[which(my_germ$purpose == "X"),] 
+my_germ <- as.data.frame(my_germ)
+
+my_germ[my_germ=="X"] <- NA
+my_germ <- my_germ[-which(is.na(my_germ$purpose)),]
+colSums(is.na(my_germ))
+
+#replace good with 1, bad with 0
+my_germ$binary <- gsub("good","1",my_germ$good_bad)
+my_germ$binary <- gsub("bad","0",my_germ$binary) 
+my_germ$binary <- as.numeric(my_germ$binary) 
+```
+
+## Data cleaing
+The data sheet does not contain missing value however, contained "X" in the pourpose variable instead.
+Omited the rows which contain "X" as a variables.
+
+```{r visual analysis, echo=TRUE, warning=FALSE, message=FALSE}
+##############################################################
+#####Visualization
+##############################################################
+ggplot(data=my_germ, aes(x=marital, y=amount, color=good_bad)) +
+  geom_jitter()
+
+ggplot(data=my_germ, aes(x=depends, y=amount, color=good_bad)) +
+  geom_jitter()
+
+ggplot(data=my_germ, aes(x=duration, y=amount, color=good_bad)) +
+  geom_point()+geom_smooth()+scale_color_manual(values=c("#B81CEE","#0AF0D4"))  
+```
+
+## Visual Analysis
+Checked the relationship of "amount" with three variables, "marital", "depends" and "duration" using different color for good/bad customer cracification which is made by Deutche Bank.
+Amount x Marital: most of customers are concentrated in status 2 and 3 / lower 5000 amount area, and good/bad looks equaly distributed.
+Amount x Depends: most of customers are counted as 1.0 /lower 5000 amount area. The good/bad is equaly distributed.
+Amount x Duration: good customer seems concentrated around duration 1-2 / lower 5000 amount area, and bad customer looka siaributes to the longer duration side and relatively higher amount. The smooth liner shows almost same promortion.
+It is hard to figur out the significant difference between good/bad customer from these visuals.
+
+
+```{r standardization normalization, echo=TRUE, warning=FALSE, message=FALSE}
+##############################################################
+#####Standardization, Normalization, Sampling and Classification
+##############################################################
+#rescale data to have a mean of 0 and a standard deviation of 1
+#UDF Z-Score
+standard <- function(var1) {
+  my_standard <- (var1-mean(var1))/sd(var1)
+  return(my_standard)
+} #closing the standard variable 
+#apply function to my_germ age
+my_germ$age_standard <- standard(var1=my_germ$age)
+mean(my_germ$age_standard)
+sd(my_germ$age_standard)
+summary(my_germ$age_standard)
+#apply function to my_germ amount 
+my_germ$amount_standard <- standard(var1=my_germ$amount)
+mean(my_germ$amount_standard)
+sd(my_germ$amount_standard)
+summary(my_germ$amount_standard)
+
+#UDF T-score
+standard <- function(var1) {
+  my_standard <- (var1-mean(var1))/sd(var1)*10+50 
+  return(my_standard)
+} #closing the standard variable 
+#apply function to my_germ age
+my_germ$age_standard <- standard(var1=my_germ$age)
+mean(my_germ$age_standard)
+sd(my_germ$age_standard)
+summary(my_germ$age_standard)
+#apply the function to my_germ amount 
+my_germ$amount_standard <- standard(var1=my_germ$amount)
+mean(my_germ$amount_standard)
+sd(my_germ$amount_standard)
+summary(my_germ$amount_standard)
+
+###Normalization - Re-scale the values into a range of 0 and 1
+normal <- function(var1){
+  my_normal <- (var1-min(var1))/(max(var1)-min(var1))
+  return(my_normal)
+} #closing the normal UDF
+my_germ$checking_norm <- normal(var1=my_germ$checking)
+my_germ$duration_norm <- normal(var1=my_germ$duration)
+my_germ$amount_norm <- normal(var1=my_germ$amount)
+my_germ$employed_norm <- normal(var1=my_germ$employed)
+my_germ$installp_norm <- normal(var1=my_germ$installp)
+my_germ$age_norm <- normal(var1=my_germ$age)
+my_germ$existcr_norm <- normal(var1=my_germ$existcr)
+my_germ$telephon_norm <- normal(var1=my_germ$telephon)
+```
+
+## Standardization & Normalization
+To see the positionnig of each customer's age and amount, created t-score UDF and created new variable age_standard and amount_standard.
+Furthermore, rescale the all numeric variable range 0 to 1 for coming unitless regression calculation.
+
+
+```{r logistic analysis, echo=TRUE, warning=FALSE, message=FALSE}
+##############################################################
+#####Classification with Logistic Regression
+##############################################################
+#creating training and testing data sets by random sampling
+train_index <- sample(1:nrow(my_germ),size=0.8*nrow(my_germ))
+germ_train <- my_germ[train_index,]
+germ_test <- my_germ[-train_index,]
+
+#linear prediction
+my_linear <- lm(amount~age, data=germ_train)
+summary(my_linear)
+
+#Logistic Regression
+my_logit <- glm(binary~checking + duration + age + telephon + amount + savings 
+                + installp + coapp, data=germ_train, family = "binomial")
+summary(my_logit)
+
+#remove telephon and amount to improve the analysis
+my_logit_better <- glm(binary~checking + duration + age + savings 
+                       + installp + coapp, data=germ_train, family = "binomial")
+summary(my_logit_better)
+
+#designing logistic regression after normalization of the data
+my_logit_norm <- glm(binary~checking_norm+duration_norm+age_norm+installp_norm, data=germ_train, family = "binomial")
+summary(my_logit_norm)
+```
+
+## Classification with Logistic Regression
+Set the "binary" converted form "good_bad" as an objective variable and other numerical variables as an explained variables tosee the which variable is significantly impacting to the good customer.Checked relationships with unit and unitless variables.
+As a concequence, figure out that "chekcing", "duration", "age" and "installp", have significant relationship with good_bad variable interms of p-value.
+Checking has positive stronger impact for good_bad variable.
+Duration has negative stronger impact for good_bad variable.
+Age has positive normal impact for good_bad variable. 
+Install negative weak impact for good_bad variable.
+
+
+
+```{r test logistic model, echo=TRUE, warning=FALSE, message=FALSE}
+##############################################################
+#####Confusion Matrix, Decision Tree, Type GINI and comparing different models
+##############################################################
+#for testing data
+my_prediction_testing <- predict(my_logit,germ_test, type="response")
+confusionMatrix(data=as.factor(as.numeric(my_prediction_testing > 0.5)),
+                reference=as.factor(as.numeric(germ_test$binary)))
+
+#for training data 
+my_prediction_training <- predict(my_logit,germ_train, type="response")
+confusionMatrix(data=as.factor(as.numeric(my_prediction_training > 0.5)),
+                reference=as.factor(as.numeric(germ_train$binary)))
+
+#AUC ROC framework
+my_prediction <- my_prediction_training
+pred_val_logit <- prediction(my_prediction, germ_train$binary)
+perf_logit <- performance(pred_val_logit,"tpr","fpr")
+plot(perf_logit)
+
+#Challenger Decision Tree for my_Germ 
+my_tree <- rpart(binary~checking_norm+duration_norm+age_norm+amount_norm+installp_norm, data=germ_train, method = "class",cp=0.02)
+rpart.plot(my_tree, extra=1, type=1)
+```
+
+
+```{r Comparing model performance, echo=TRUE, warning=FALSE, message=FALSE}
+##############################################################
+#####Comparing model performance
+##############################################################
+my_tree_predict_testt<-predict(my_tree, germ_test,type="prob")
+my_tree_predict_train<-predict(my_tree, germ_train,type="prob")
+my_tree_prediction<-prediction(my_tree_predict_train[,2], germ_train$binary)
+
+my_tree_performance<-performance(my_tree_prediction,"tpr","fpr")
+plot(my_tree_performance,col="black")
+plot(perf_logit,col="green3",add=TRUE)#low false positive rate more important than higher rates
+```
+
+
+```{r Scoring, echo=TRUE, warning=FALSE, message=FALSE}
+##############################################################
+#####Credit score formular 
+##############################################################
+#Scoring based on normarized logisitic regression
+my_germ$score <- c()
+for (i in 1:nrow(my_germ)) {
+  my_germ$score[i] <- 20*my_germ$duration_norm[i]+
+    50*my_germ$checking_norm[i]+
+    40*my_germ$age_norm[i]+
+    30*my_germ$installp_norm[i]
+} #closing the i loop
+summary(my_germ$score)
+
+#check for both score and good_bad, if score is below score mean, label customer "outstanding"
+my_germ$label <- c()
+
+for (i in 1:nrow(my_germ)) {
+  if (my_germ$score[i]<mean(my_germ$score) & my_germ$binary[i] == 1) {  
+    my_germ$label[i] <- "outstanding"
+  } else {
+    my_germ$label[i] <- "not outstanding"
+  } #closing if statement
+} #closing the i loop
+table(my_germ$label)
+```
+
