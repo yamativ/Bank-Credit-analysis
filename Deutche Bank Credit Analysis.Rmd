@@ -30,7 +30,7 @@ library(rpart.plot)
 ##### Data Massage
 ##############################################################
 library(readxl)
-my_germ <- read_excel("Desktop/MBAN/20211012 Dara science R/class deuchebank/german credit card.xls")
+my_germ <- read_excel("german credit card.xls")
 
 any(is.na(my_germ)) 
 table(my_germ$purpose) 
